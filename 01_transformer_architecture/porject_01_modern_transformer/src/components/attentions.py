@@ -31,14 +31,15 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         # TODO: rotate the queries and keys using RoPE
 
         # pad the keys and values
-        keys = F.pad(input=keys, pad=(0, 0, padding, padding), mode="constant", value=0)
-        values = F.pad(input=values, pad=(0, 0, padding, padding), mode="constant", value=0)
+        keys_padded = F.pad(input=keys, pad=(0, 0, padding, padding), mode="constant", value=0) # [batch_size, num_heads, seq_length + 2 x padding, head_dim]
+        values_padded = F.pad(input=values, pad=(0, 0, padding, padding), mode="constant", value=0)
 
         # Create sliding windows for keys and values
-        keys_windows = keys.unfold(dimension=2, size=self.window_size, step=1)  # [batch_size, num_heads, seq_length, window_size, head_dim]
-        values_windows = values.unfold(dimension=2, size=self.window_size, step=1)  # [batch_size, num_heads, seq_length, window_size, head_dim]
+        keys_windows = keys_padded.unfold(dimension=2, size=self.window_size, step=1)   # [batch_size, num_heads, seq_length, window_size, head_dim]
+        values_windows = values_padded.unfold(dimension=2, size=self.window_size, step=1)  
 
-        # TODO: Compute attention scores
+        # Compute attention scores
+        scores = torch.einsum('bnswh,bnsh->bn')
         # TODO: multiply attentions to values_windows
         # TODO: Merge heads and combine the last two dimensions
         # TODO: perform the final linear transformation
