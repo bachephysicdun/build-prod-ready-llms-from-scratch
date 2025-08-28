@@ -4,21 +4,26 @@ from typing import Tuple
 
 
 def get_rotation_matrix(dim: int, context_size: int, period: float) -> torch.Tensor:
-    # TODO: compute a tensor of frequencies
-    freqs = None
-    # TODO: compute a tensor of token indexes
-    token_indexes = None
-    # TODO: compute the matrix thetas
-    thetas = None
-    # TODO: create the rotation matrix
-    rotation_matrix = None
+    # compute a tensor of frequencies
+    freqs = 1 / context_size ** (torch.arange(0, dim, 2))
+    
+    # compute a tensor of token indexes
+    token_indexes = torch.arange(context_size)
+    
+    # compute the matrix thetas
+    # thetas = torch.einsum('i,j->ij', token_indexes, freqs)  # [context_size, dim // 2]
+    thetas = torch.outer(token_indexes, freqs)  # [context_size, dim // 2]
+    
+    # create the rotation matrix
+    rotation_matrix = torch.polar(torch.ones_like(thetas), thetas)  # [context_size, dim // 2]
+    
     return rotation_matrix
 
 
 class RoPE(nn.Module):
     def __init__(self, rotation_matrix):
         super().__init__()
-        self.rotation_matrix = rotation_matrix
+        self.rotation_matrix = rotation_matrix  # [context_size, head_dim // 2]
 
     def forward(self, queries, keys):
         batch_size, num_heads, seq_length, head_dim = queries.size()
@@ -37,7 +42,8 @@ class RoPE(nn.Module):
 
         # convert to read and reshape back to [batch_size, num_heads, seq_length, head_dim]
         new_queries = torch.view_as_real(queries_rotated).flatten(3)
-        new_keys = torch.view_as_real(keys_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
+        new_keys = torch.view_as_real(keys_rotated).flatten(3)
+        # new_keys = torch.view_as_real(keys_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
 
         return new_queries, new_keys
 
