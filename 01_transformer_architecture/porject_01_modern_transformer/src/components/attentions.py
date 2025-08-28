@@ -39,11 +39,19 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         values_windows = values_padded.unfold(dimension=2, size=self.window_size, step=1)  
 
         # Compute attention scores
-        scores = torch.einsum('bnswh,bnsh->bn')
-        # TODO: multiply attentions to values_windows
-        # TODO: Merge heads and combine the last two dimensions
-        # TODO: perform the final linear transformation
-        output = None
+        scores = torch.einsum('bnsh,bnswh->bnsw', queries, keys_windows)  # [batch_size, num_heads, seq_length, window_size]
+        scores = scores / (self.head_dim ** 0.5)
+        attentions = F.softmax(scores, dim=-1) # [batch_size, num_heads, seq_length, window_size]
+        
+        # multiply attentions to values_windows
+        hidden_state = torch.einsum('bnsw,bnswh->bnsh', attentions, values_windows)  # [batch_size, num_heads, seq_length, head_dim]
+
+        # Merge heads and combine the last two dimensions
+        hidden_state = hidden_state.permute(0, 2, 1, 3)
+        hidden_state = hidden_state.reshape((batch_size, seq_length, self.hidden_size))
+
+        # perform the final linear transformation
+        output = self.out(hidden_state)
         return output
    
     
