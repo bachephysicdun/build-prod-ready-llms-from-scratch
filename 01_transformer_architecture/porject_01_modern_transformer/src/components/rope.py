@@ -23,10 +23,13 @@ def get_rotation_matrix(dim: int, context_size: int, period: float) -> torch.Ten
 class RoPE(nn.Module):
     def __init__(self, rotation_matrix):
         super().__init__()
-        self.rotation_matrix = rotation_matrix  # [context_size, head_dim // 2]
+        # self.rotation_matrix = rotation_matrix  # [context_size, head_dim // 2]
+        # the RoPE rotation matrix is fixed (non-learnable), so we register it as a buffer
+        self.register_buffer("rotation_matrix", rotation_matrix, persistent=False)  # [context_size, head_dim // 2]
 
     def forward(self, queries, keys):
         batch_size, num_heads, seq_length, head_dim = queries.size()
+        assert head_dim % 2 == 0, "head_dim must be even for RoPE"
 
         # reshape to [batch_size, num_heads, seq_length, head_dim // 2 , 2]
         queries = queries.reshape(batch_size, num_heads, seq_length, head_dim // 2, 2)
