@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from rope import RoPE, get_rotation_matrix
 
 
 class EfficientSlidingWindowMultiheadAttention(nn.Module):
@@ -16,7 +17,9 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         self.qkv_linear = nn.Linear(hidden_size, hidden_size * 3)
         self.out = nn.Linear(hidden_size, hidden_size)
 
-        # TODO: create a position embedding attribute with RoPE
+        # create a position embedding attribute with RoPE
+        rotation_matrix = get_rotation_matrix(dim=self.head_dim, context_size=hidden_size, period=10_000)
+        self.rope = RoPE(rotation_matrix)
 
     def forward(self, x):
         batch_size, seq_length, _ = x.size()
@@ -26,9 +29,10 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         qkv = self.qkv_linear(x) # [batch_size, seq_length, 3 * hidden_size]
         qkv = qkv.reshape(batch_size, seq_length, self.num_heads, 3 * self.head_dim) # [batch_size, seq_length, num_heads, 3 * head_dim]
         qkv = qkv.permute(0, 2, 1, 3) # [batch_size, num_heads, seq_length, 3 * head_dim]
-        queries, keys, values = qkv.chunk(3, dim=-1)    #[batch_size, num_heads, seq_length, head_dim]
+        queries, keys, values = qkv.chunk(3, dim=-1)  #[batch_size, num_heads, seq_length, head_dim]
 
-        # TODO: rotate the queries and keys using RoPE
+        # rotate the queries and keys using RoPE
+        queries, keys = self.rope(queries, keys)  # same dimension: batch_size, num_heads, seq_length, head_dim]
 
         # pad the keys and values
         keys_padded = F.pad(input=keys, pad=(0, 0, padding, padding), mode="constant", value=0) # [batch_size, num_heads, seq_length + 2 x padding, head_dim]
