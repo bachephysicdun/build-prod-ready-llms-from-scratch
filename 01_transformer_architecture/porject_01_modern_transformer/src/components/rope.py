@@ -5,13 +5,13 @@ from typing import Tuple
 
 def get_rotation_matrix(dim: int, context_size: int, period: float) -> torch.Tensor:
     # compute a tensor of frequencies
-    freqs = 1 / context_size ** (torch.arange(0, dim, 2))
+    freqs = 1.0 / (period ** (torch.arange(0, dim, 2).float() / dim))  # [dim // 2]
     
     # compute a tensor of token indexes
     token_indexes = torch.arange(context_size)
     
     # compute the matrix thetas
-    # thetas = torch.einsum('i,j->ij', token_indexes, freqs)  # [context_size, dim // 2]
+    # thetas = torch.einsum('i,j->ij', token_indexes, freqs)  # [context_size, dim // 2]    
     thetas = torch.outer(token_indexes, freqs)  # [context_size, dim // 2]
     
     # create the rotation matrix
