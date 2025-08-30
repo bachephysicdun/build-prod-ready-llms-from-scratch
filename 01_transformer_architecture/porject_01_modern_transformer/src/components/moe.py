@@ -34,16 +34,25 @@ class MoeLayer(nn.Module):
             FeedForward(hidden_size=hidden_size, d_ff=d_ff) 
             for _ in range(num_experts)
         ]) 
-        self.gate = nn.Linear()
+        self.gate = nn.Linear(hidden_size, num_experts) # a gate network or router determines which tokens are sent to which experts.
 
     def forward(self, x):
-        # TODO: pass the input x to the gate
-        # TODO: use torch.topk to get the topk values and indexes
-        # TODO: pass the topk values to F.softmax to get the weights for each expert 
+        # pass the input x to the gate
+        gout = self.gate(x)    # [batch_size, seq_length, num_experts]
+        # use torch.topk to get the topk values and indexes
+        topk_values, topk_indexes = torch.topk(gout, self.n_experts_per_token, dim=-1) # each tensor has shape of [batch_size, seq_length, n_experts_per_token]
+
+        # pass the topk values to F.softmax to get the weights for each expert 
+        topk_weights = F.softmax(topk_values, dim=-1)
   
-        out = torch.zeros_like(x, device=x.device)
+        out = torch.zeros_like(x, device=x.device)  # [batch_size, seq_length, hidden_size]
         for i, expert in enumerate(self.experts):
-            # TODO: find the indexes of the hidden states that should be routed to the current expert
-            # TODO: update the out tensor
-            pass
-        return out
+            # find the indexes of the hidden states that should be routed to the current expert
+            batch_idx, token_idx, topk_idx = torch.where(topk_indexes == i) # -> [n_selected token routed to exper i], [n_selected], [n_selected]
+            # update the out tensor
+            # topk_weights[batch_idx, token_idx, topk_idx, None] has shape of [n_selected, 1]
+            # out[batch_idx, token_idx, :] has shape of [n_selected, hidden_size]
+            # expert(x[batch_idx, token_idx, :]) has shape of [n_selected, hidden_size]
+            out[batch_idx, token_idx, :] += topk_weights[batch_idx, token_idx, topk_idx, None] * expert(x[batch_idx, token_idx, :])
+            
+        return out  # [batch_size, seq_length, hidden_size]
