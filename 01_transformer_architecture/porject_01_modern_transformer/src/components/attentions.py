@@ -1,19 +1,35 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from components.rope import RoPE, get_rotation_matrix
+from components.rope import RoPE
 
 
 class EfficientSlidingWindowMultiheadAttention(nn.Module):
-    def __init__(self, hidden_size, num_heads, window_size, rotation_matrix):
+    def __init__(self, hidden_size: int, num_heads: int, window_size: int, rotation_matrix: torch.Tensor) -> None:
+        """
+        Efficient Sliding Window Multihead Self-Attention with RoPE
+
+        This implementation uses 'torch.einsum' for efficient computation of attention scores and context vectors.
+        It applies Rotary Position Embeddings (RoPE) to the queries and keys to encode positional information.
+        A tensor unfolding technique is used to create sliding windows. The attention mechanism is restricted to a 
+        sliding window, which reduces computational complexity while still capturing local dependencies.
+
+        Args:
+            hidden_size (int): dimension of hidden states (must be divisible by num_heads).
+            num_heads (int): numnber of attention heads.
+            window_size (int): size of the sliding window (must be odd to have a center).
+            rotation_matrix (torch.Tensor): precomputed rotation matrix for RoPE of shape [context_size, head_dim // 2]
+        """        
         super().__init__()
         assert hidden_size % num_heads == 0, f"hidden_size ({hidden_size}) must be divisible by num_heads ({num_heads})"
+        assert window_size % 2 == 1, f"window_size ({window_size}) must be odd to have a center"
 
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.head_dim = hidden_size // num_heads
         self.window_size = window_size
 
+        # linear projection for queries, keys and values
         self.qkv_linear = nn.Linear(hidden_size, hidden_size * 3)
         self.out = nn.Linear(hidden_size, hidden_size)
 
@@ -21,7 +37,16 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         # rotation_matrix = get_rotation_matrix(dim=self.head_dim, context_size=hidden_size, period=10_000)
         self.rope = RoPE(rotation_matrix)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        forward pass of Efficient Sliding Window Multihead Attention with RoPE
+
+        Args:
+            x (torch.Tensor): input tensor of shape (batch_size, seq_length, hidden_size)
+
+        Returns:
+            torch.Tensor: output tensor of shape (batch_size, seq_length, hidden_size)
+        """        
         batch_size, seq_length, _ = x.size()
         padding = self.window_size // 2
 
@@ -63,11 +88,26 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         # perform the final linear transformation
         return self.out(hidden_state)
    
-    
+
+
+
 class SlidingWindowMultiheadAttention(nn.Module):
-    def __init__(self, hidden_size, num_heads, window_size):
+    def __init__(self, hidden_size: int, num_heads: int, window_size: int) -> None:
+        """
+        Sliding Window Multihead Self-Attention
+        This is a reference implementation of sliding window attention using an explicit for loop 
+        over sequence positions. It is less effecient than the 'EfficientSlidingWindowMultiheadAttention' 
+        implementation but is easier to understand. It restricts the attention mechanism to a sliding window, 
+        which reduces computational complexity while still capturing local dependencies.
+
+        Args:
+            hidden_size (int): dimension of hidden states (must be divisible by num_heads).
+            num_heads (int): number of attention heads.
+            window_size (int): size of the sliding window (must be odd to have a center).
+        """        
         super().__init__()
-        assert hidden_size % num_heads == 0, "hidden_size must be divisible by num_heads"
+        assert hidden_size % num_heads == 0, f"hidden_size ({hidden_size}) must be divisible by num_heads ({num_heads})"
+        assert window_size % 2 == 1, f"window_size ({window_size}) must be odd to have a center"
         
         self.hidden_size = hidden_size
         self.num_heads = num_heads
@@ -77,22 +117,31 @@ class SlidingWindowMultiheadAttention(nn.Module):
         self.qkv_linear = nn.Linear(hidden_size, hidden_size * 3)
         self.out = nn.Linear(hidden_size, hidden_size)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        forward pass of Sliding Window Multihead Attention
+
+        Args:
+            x (torch.Tensor): input tensor of shape (batch_size, seq_length, hidden_size)
+
+        Returns:
+            torch.Tensor: output tensor of shape (batch_size, seq_length, hidden_size)
+        """        
         batch_size, seq_length, _ = x.size()
         padding = self.window_size // 2
 
         # Compute Q, K, V
-        qkv = self.qkv_linear(x)
+        qkv = self.qkv_linear(x)    # [batch_size, seq_length, 3 * hidden_size]
         qkv = qkv.reshape(batch_size, seq_length, self.num_heads, 3 * self.head_dim)
         qkv = qkv.permute(0, 2, 1, 3)  # Reorder to (batch_size, num_heads, seq_length, 3 * head_dim)
         queries, keys, values = qkv.chunk(3, dim=-1)
 
         # Pad sequence for windowed attention
-        keys = F.pad(input=keys, pad=(0, 0, padding, padding), mode="constant", value=0)
-        values = F.pad(input=values, pad=(0, 0, padding, padding), mode="constant", value=0)
+        keys = F.pad(input=keys, pad=(0, 0, padding, padding), mode="constant", value=0)    # [batch_size, num_heads, seq_length + 2*padding, head_dim]
+        values = F.pad(input=values, pad=(0, 0, padding, padding), mode="constant", value=0)    # [batch_size, num_heads, seq_length + 2*padding, head_dim]
 
         # Initialize context tensors
-        context = torch.zeros_like(queries, device=x.device)
+        context = torch.zeros_like(queries, device=x.device)    # [batch_size, num_heads, seq_length, head_dim]
 
         # Compute attention for each sliding window
         for i in range(seq_length):
@@ -101,16 +150,22 @@ class SlidingWindowMultiheadAttention(nn.Module):
             end = i + self.window_size
             
             # Compute scores
-            scores = torch.matmul(queries[:, :, i:i+1, :], keys[:, :, start:end, :].transpose(-2, -1))
-            scores = scores / (self.head_dim ** 0.5)
-            attention = F.softmax(scores, dim=-1)
+            scores = torch.matmul(
+                queries[:, :, i:i+1, :],    # [batch_size, num_heads, 1, head_dim]
+                keys[:, :, start:end, :].transpose(-2, -1)  # [batch_size, num_heads, head_dim, window_size]
+            )
+            scores = scores / (self.head_dim ** 0.5)    # [batch_size, num_heads, 1, window_size]
+            attention = F.softmax(scores, dim=-1)   # [batch_size, num_heads, 1, window_size]
             
             # Apply attention to values and add to context
-            context[:, :, i:i+1, :] += torch.matmul(attention, values[:, :, start:end, :])
+            context[:, :, i:i+1, :] += torch.matmul(
+                attention, # [batch_size, num_heads, 1, window_size]
+                values[:, :, start:end, :]  # [batch_size, num_heads, window_size, head_dim]
+            )   # [batch_size, num_heads, 1, head_dim]
 
         # Reshape context to (batch_size, seq_length, num_heads * head_dim)
         context = context.permute(0, 2, 1, 3).reshape(batch_size, seq_length, self.hidden_size)
 
         # Final linear layer
-        output = self.out(context)
+        output = self.out(context)  # [batch_size, seq_length, hidden_size]
         return output

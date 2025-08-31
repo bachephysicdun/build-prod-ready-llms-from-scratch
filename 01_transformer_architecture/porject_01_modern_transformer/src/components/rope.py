@@ -6,11 +6,12 @@ from typing import Tuple
 def get_rotation_matrix(dim: int, context_size: int, period: float) -> torch.Tensor:
     """
     Function to compute the Rotary Position Embedding (RoPE) rotation matrix.
+    (In practice, this matrix is precomputed and registered as a buffer in the RoPE class.)
 
     Args:
-        dim (int): 
+        dim (int): dimension (i.e., head_dim) of the vectors to be partitioned into dim // 2 segments of pairs.
         context_size (int): maximum length of the context
-        period (float): 
+        period (float): Predio of the RoPE, typically set to a large value greater than context_size, e.g., 10,000.
 
     Returns:
         torch.Tensor: rotation matrix of shape [context_size, dim // 2]
@@ -32,13 +33,35 @@ def get_rotation_matrix(dim: int, context_size: int, period: float) -> torch.Ten
 
 
 class RoPE(nn.Module):
-    def __init__(self, rotation_matrix):
+    def __init__(self, rotation_matrix: torch.Tensor) -> None:
+        """
+        Rotary Position Embedding (RoPE) Layer.
+        This module applies rotary position embeddings to the input queries and keys tensors used 
+        in the self-attention mechanism. RoPE encodes positional information by rotating the query and key vectors
+        in a way that depends on their position in the sequence. This allows the model to capture relative positional relationships.
+
+        Args:
+            rotation_matrix (torch.Tensor): precomputed rotation matrix of shape [context_size, head_dim // 2]
+            This is fixed, non-learnable, so we register it as a buffer and will be used for position dependent rotation.
+        """        
         super().__init__()
         # self.rotation_matrix = rotation_matrix  # [context_size, head_dim // 2]
         # the RoPE rotation matrix is fixed (non-learnable), so we register it as a buffer
         self.register_buffer("rotation_matrix", rotation_matrix, persistent=False)  # [context_size, head_dim // 2]
 
-    def forward(self, queries, keys):
+    def forward(self, queries: torch.Tensor, keys: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Apply RoPE to the input queries and keys.
+
+        Args:
+            queries (torch.Tensor): query tensor of shape [batch_size, num_heads, seq_length, head_dim]
+            keys (torch.Tensor): query tensor of shape [batch_size, num_heads, seq_length, head_dim]
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: 
+                - new_queries (torch.Tensor): rotated query tensor of shape [batch_size, num_heads, seq_length, head_dim]
+                - new_keys (torch.Tensor): rotated key tensor of shape [batch_size, num_heads, seq_length, head_dim]
+        """        
         batch_size, num_heads, seq_length, head_dim = queries.size()
         assert head_dim % 2 == 0, "head_dim must be even for RoPE"
 
