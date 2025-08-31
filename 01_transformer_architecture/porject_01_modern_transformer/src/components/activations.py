@@ -5,7 +5,7 @@ import torch.nn as nn
 class SiGLU(nn.Module):
     """
     Sigmoid Gated Linear Unit (SiGLU) Activation Function
-    SiGLU(x) = W * x * sigma(W_g * x) where W and W_g are learnable weight matrices,  
+    SiGLU(x) = W x * sigma(W_g x) where W and W_g are learnable weight matrices,  
     bias terms are omitted (for simplicity) and sigma is the sigmoid function.
     Gated activation functions tend to boost the learning quality but worsen the stability of 
     the training, especially with the Mixture of Experts (MoE) layers.
