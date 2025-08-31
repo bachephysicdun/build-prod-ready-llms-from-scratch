@@ -19,11 +19,10 @@ class TransformerBlock(nn.Module):
         super().__init__()
 
         # instantiate the different components
-        self.attn = EfficientSlidingWindowMultiheadAttention(hidden_size, num_heads, window_size)
+        self.attn = EfficientSlidingWindowMultiheadAttention(hidden_size, num_heads, window_size, rotation_matrix)
         self.moe_layer = MoeLayer(hidden_size, d_ff, num_experts, n_experts_per_token)
         self.norm_layer1 = RMSNorm(hidden_size)
         self.norm_layer2 = RMSNorm(hidden_size)
-        self.rotation_matrix = rotation_matrix
 
     def forward(self, x):
         # implement for the forward logic
