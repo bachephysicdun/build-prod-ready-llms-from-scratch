@@ -26,7 +26,7 @@ class Transformer(nn.Module):
         n_experts_per_token (int): number of experts each token is routed to (top-k).
         n_blocks (int): number of stacked Transformer blocks.
         max_seq_len (int): Maximum sequence length (used for RoPE positional embeddings).
-        rope_period (float, Optional): period for RoPE (default: 10,000).
+        period (float, Optional): period for RoPE (default: 10,000).
     """    
     def __init__(
             self,
@@ -39,13 +39,13 @@ class Transformer(nn.Module):
             n_experts_per_token: int, 
             n_blocks: int,
             max_seq_len: int,
-            rope_period: float = 10_000.0
+            period: float = 10_000.0
         ):
 
         super().__init__()
 
         head_dim = hidden_size // num_heads
-        self.rotation_matrix = get_rotation_matrix(head_dim, max_seq_len, rope_period) # [max_seq_len, head_dim // 2]
+        self.rotation_matrix = get_rotation_matrix(head_dim, max_seq_len, period) # [max_seq_len, head_dim // 2]
 
         # instantiate the components
         self.embedding = nn.Embedding(vocabulary_size, hidden_size)
