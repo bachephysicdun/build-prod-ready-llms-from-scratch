@@ -1,23 +1,24 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from activations import SiGLU
+from components.activations import SiGLU
 
 
 class FeedForward(nn.Module):
     def __init__(self, hidden_size, d_ff):
         super().__init__()
         # instantiate 3 linear layers
-        self.linear1 = nn.Linear(d_ff, hidden_size)
-        self.linear2 = nn.Linear(d_ff, hidden_size)
-        self.linear3 = nn.Linear(hidden_size, d_ff)
+        self.linear1 = nn.Linear(hidden_size, d_ff)
+        self.linear2 = nn.Linear(hidden_size, d_ff)
+        self.linear3 = nn.Linear(d_ff, hidden_size)
         self.relu = nn.ReLU()
+        self.siglu = SiGLU(d_ff, d_ff)
 
     def forward(self, x) -> torch.Tensor:
         # implement the expert logic
         x1 = self.linear1(x)    # [batch_size, seq_length, d_ff]
         x2 = self.linear2(x)    # [batch_size, seq_length, d_ff]
-        x = SiGLU(x1 * x2)      # [batch_size, seq_length, d_ff]
+        x = self.siglu(x1 * x2) # [batch_size, seq_length, d_ff]
         x = self.linear3(x)     # [batch_size, seq_length, hidden_size]
         return x
 
@@ -49,6 +50,7 @@ class MoeLayer(nn.Module):
         for i, expert in enumerate(self.experts):
             # find the indexes of the hidden states that should be routed to the current expert
             batch_idx, token_idx, topk_idx = torch.where(topk_indexes == i) # -> [n_selected token routed to exper i], [n_selected], [n_selected]
+            
             # update the out tensor
             # topk_weights[batch_idx, token_idx, topk_idx, None] has shape of [n_selected, 1]
             # out[batch_idx, token_idx, :] has shape of [n_selected, hidden_size]
