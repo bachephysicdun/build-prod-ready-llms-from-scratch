@@ -7,19 +7,15 @@ from components.activations import SiGLU
 class FeedForward(nn.Module):
     def __init__(self, hidden_size, d_ff):
         super().__init__()
-        # instantiate 3 linear layers
-        self.linear1 = nn.Linear(hidden_size, d_ff)
-        self.linear2 = nn.Linear(hidden_size, d_ff)
-        self.linear3 = nn.Linear(d_ff, hidden_size)
-        self.relu = nn.ReLU()
-        self.siglu = SiGLU(d_ff, d_ff)
+        # instantiate linear layers and SiGLU activation
+        self.w3 = nn.Linear(d_ff, hidden_size)
+        self.siglu = SiGLU(d_ff, d_ff) # SiGLU already does two separate linear layers w1 and w2 internally
 
     def forward(self, x) -> torch.Tensor:
         # implement the expert logic
-        x1 = self.linear1(x)    # [batch_size, seq_length, d_ff]
-        x2 = self.linear2(x)    # [batch_size, seq_length, d_ff]
-        x = self.siglu(x1 * x2) # [batch_size, seq_length, d_ff]
-        x = self.linear3(x)     # [batch_size, seq_length, hidden_size]
+        # siglu expects a single input x and internally applies two linear layers.
+        x = self.siglu(x)  # W1 x * Sigmoid(W2 x) -> [batch_size, seq_length, d_ff]
+        x = self.w3(x)     # [batch_size, seq_length, hidden_size]
         return x
 
 
@@ -35,7 +31,7 @@ class MoeLayer(nn.Module):
             FeedForward(hidden_size=hidden_size, d_ff=d_ff) 
             for _ in range(num_experts)
         ]) 
-        self.gate = nn.Linear(hidden_size, num_experts) # a gate network or router determines which tokens are sent to which experts.
+        self.gate = nn.Linear(hidden_size, num_experts, bias=False) # a gate network or router determines which tokens are sent to which experts.
 
     def forward(self, x):
         # pass the input x to the gate
