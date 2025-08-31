@@ -4,6 +4,17 @@ from typing import Tuple
 
 
 def get_rotation_matrix(dim: int, context_size: int, period: float) -> torch.Tensor:
+    """
+    Function to compute the Rotary Position Embedding (RoPE) rotation matrix.
+
+    Args:
+        dim (int): 
+        context_size (int): maximum length of the context
+        period (float): 
+
+    Returns:
+        torch.Tensor: rotation matrix of shape [context_size, dim // 2]
+    """    
     # compute a tensor of frequencies
     freqs = 1.0 / (period ** (torch.arange(0, dim, 2).float() / dim))  # [dim // 2]
     
@@ -44,10 +55,8 @@ class RoPE(nn.Module):
         keys_rotated = keys_complex * self.rotation_matrix[:seq_length, :] # [batch_size, num_heads, seq_length, head_dim // 2]
 
         # convert to read and reshape back to [batch_size, num_heads, seq_length, head_dim]
-        new_queries = torch.view_as_real(queries_rotated).flatten(3)
-        new_keys = torch.view_as_real(keys_rotated).flatten(3)
-        # new_queries = torch.view_as_real(queries_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
-        # new_keys = torch.view_as_real(keys_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
+        new_queries = torch.view_as_real(queries_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
+        new_keys = torch.view_as_real(keys_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
 
         return new_queries, new_keys
 
