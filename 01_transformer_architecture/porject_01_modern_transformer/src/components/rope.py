@@ -46,6 +46,7 @@ class RoPE(nn.Module):
         # convert to read and reshape back to [batch_size, num_heads, seq_length, head_dim]
         new_queries = torch.view_as_real(queries_rotated).flatten(3)
         new_keys = torch.view_as_real(keys_rotated).flatten(3)
+        # new_queries = torch.view_as_real(queries_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
         # new_keys = torch.view_as_real(keys_rotated).reshape(batch_size, num_heads, seq_length, head_dim)
 
         return new_queries, new_keys
