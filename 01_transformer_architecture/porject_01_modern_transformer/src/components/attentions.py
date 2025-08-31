@@ -1,13 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from rope import RoPE, get_rotation_matrix
+from components.rope import RoPE, get_rotation_matrix
 
 
 class EfficientSlidingWindowMultiheadAttention(nn.Module):
-    def __init__(self, hidden_size, num_heads, window_size):
+    def __init__(self, hidden_size, num_heads, window_size, rotation_matrix):
         super().__init__()
-        assert hidden_size % num_heads == 0, "hidden_size must be divisible by num_heads"
+        assert hidden_size % num_heads == 0, f"hidden_size ({hidden_size}) must be divisible by num_heads ({num_heads})"
 
         self.hidden_size = hidden_size
         self.num_heads = num_heads
@@ -18,7 +18,7 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         self.out = nn.Linear(hidden_size, hidden_size)
 
         # create a position embedding attribute with RoPE
-        rotation_matrix = get_rotation_matrix(dim=self.head_dim, context_size=hidden_size, period=10_000)
+        # rotation_matrix = get_rotation_matrix(dim=self.head_dim, context_size=hidden_size, period=10_000)
         self.rope = RoPE(rotation_matrix)
 
     def forward(self, x):
@@ -35,28 +35,33 @@ class EfficientSlidingWindowMultiheadAttention(nn.Module):
         queries, keys = self.rope(queries, keys)  # same dimension: batch_size, num_heads, seq_length, head_dim]
 
         # pad the keys and values
-        keys_padded = F.pad(input=keys, pad=(0, 0, padding, padding), mode="constant", value=0) # [batch_size, num_heads, seq_length + 2 x padding, head_dim]
+        keys_padded = F.pad(input=keys, pad=(0, 0, padding, padding), mode="constant", value=0) # [batch_size, num_heads, seq_length + 2*padding, head_dim]
         values_padded = F.pad(input=values, pad=(0, 0, padding, padding), mode="constant", value=0)
 
         # Create sliding windows for keys and values
-        keys_windows = keys_padded.unfold(dimension=2, size=self.window_size, step=1)   # [batch_size, num_heads, seq_length, window_size, head_dim]
-        values_windows = values_padded.unfold(dimension=2, size=self.window_size, step=1)  
+        keys_windows = keys_padded.unfold(dimension=2, size=self.window_size, step=1)  # [batch_size, num_heads, seq_length + 2*padding - window_size + 1, head_dim, window_size]
+        values_windows = values_padded.unfold(dimension=2, size=self.window_size, step=1)  # [batch_size, num_heads, seq_length + 2*padding - window_size + 1, head_dim, window_size]
 
         # Compute attention scores
-        scores = torch.einsum('bnsh,bnswh->bnsw', queries, keys_windows)  # [batch_size, num_heads, seq_length, window_size]
+        # einsum string explanation:
+        # b: batch_size, n: num_heads, s: seq_length, w: window_size, h: head_dim
+        # queries: [batch_size, num_heads, seq_length, head_dim] ('bnsh')
+        # keys_windows: [batch_size, num_heads, seq_length, window_size, head_dim] ('bnswh')
+        # The einsum sums over h, which collapses the head_dim axis. That’s why the H dimension disappears.
+        # The S dimension comes from queries (original seq_length) — that is why the result has length seq_length, not the (seq_length + 2*padding - window_size + 1).
+        # einsum computes a dot product along h for each query position with its corresponding window of keys
+        scores = torch.einsum('bnsh,bnshw->bnsw', queries, keys_windows)  # [batch_size, num_heads, seq_length, window_size]
         scores = scores / (self.head_dim ** 0.5)
         attentions = F.softmax(scores, dim=-1) # [batch_size, num_heads, seq_length, window_size]
         
         # multiply attentions to values_windows
-        hidden_state = torch.einsum('bnsw,bnswh->bnsh', attentions, values_windows)  # [batch_size, num_heads, seq_length, head_dim]
+        hidden_state = torch.einsum('bnsw,bnshw->bnsh', attentions, values_windows)  # [batch_size, num_heads, seq_length, head_dim]
 
         # Merge heads and combine the last two dimensions
-        hidden_state = hidden_state.permute(0, 2, 1, 3)
-        hidden_state = hidden_state.reshape((batch_size, seq_length, self.hidden_size))
+        hidden_state = hidden_state.permute(0, 2, 1, 3).reshape((batch_size, seq_length, self.hidden_size))
 
         # perform the final linear transformation
-        output = self.out(hidden_state)
-        return output
+        return self.out(hidden_state)
    
     
 class SlidingWindowMultiheadAttention(nn.Module):
